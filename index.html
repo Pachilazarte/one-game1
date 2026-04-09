@@ -275,6 +275,25 @@ body.totem .sess-hist{max-width:520px;padding:16px 20px;border-radius:18px;}
 @keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-11px)}30%{transform:translateX(11px)}45%{transform:translateX(-7px)}60%{transform:translateX(7px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}}
 .shaking{animation:shake .35s ease-out!important;}
 
+/* ── PANEL TOTEM FLOTANTE ───────────────── */
+#totem-panel{
+  position:fixed;top:12px;right:12px;z-index:300;
+  display:none;flex-direction:column;gap:8px;align-items:flex-end;
+}
+#totem-panel.show{display:flex;}
+.tp-btn{
+  font-family:'Boogaloo',cursive;font-size:1rem;
+  padding:10px 18px;border-radius:30px;border:none;cursor:pointer;
+  display:flex;align-items:center;gap:8px;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);
+  transition:transform .15s,filter .15s;
+  white-space:nowrap;
+}
+.tp-btn:active{transform:scale(.93);}
+.tp-fs{background:linear-gradient(135deg,var(--c6),#2a3350);color:#fff;}
+.tp-a2hs{background:linear-gradient(135deg,var(--c5),var(--c6));color:#fff;}
+.tp-icon{font-size:1.2rem;line-height:1;}
+
 /* ── INSTALL BANNER ─────────────────────── */
 #inst-banner{position:fixed;bottom:0;left:0;right:0;z-index:200;
   background:linear-gradient(135deg,rgba(42,176,201,.95),rgba(65,77,113,.98));
@@ -440,6 +459,10 @@ body.totem .sess-hist{max-width:520px;padding:16px 20px;border-radius:18px;}
     </div>
   </div>
   <div id="pbar"></div>
+  <!-- Barra superior extra en tótem: pantalla completa -->
+  <div id="totem-toolbar" style="display:none;width:min(820px,96vw);display:none;justify-content:flex-end;padding:0 4px 4px;gap:8px;">
+    <button onclick="toggleFS()" style="font-family:'Boogaloo',cursive;font-size:.85rem;padding:5px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:rgba(255,255,255,.6);cursor:pointer;" id="fs-btn">&#9974; Pantalla completa</button>
+  </div>
   <!-- AREA DE JUEGO -->
   <div id="game-area" onclick="areaClick(event)">
     <canvas id="pcanvas"></canvas>
@@ -489,6 +512,16 @@ body.totem .sess-hist{max-width:520px;padding:16px 20px;border-radius:18px;}
   </div>
 </div>
 
+<!-- PANEL FLOTANTE TOTEM: pantalla completa + acceso directo -->
+<div id="totem-panel">
+  <button class="tp-btn tp-fs" onclick="toggleFullscreen()" id="btn-fs">
+    <span class="tp-icon">&#9974;</span> Pantalla completa
+  </button>
+  <button class="tp-btn tp-a2hs" onclick="addToHome()" id="btn-a2hs">
+    <span class="tp-icon">&#43;</span> Agregar al inicio
+  </button>
+</div>
+
 <!-- INSTALL BANNER -->
 <div id="inst-banner">
   <div class="inst-text"><strong>Instalar en escritorio</strong>Acceso r&aacute;pido desde tu PC</div>
@@ -518,18 +551,94 @@ let IS_TOTEM = false;
 
 function chooseDevice(type){
   IS_TOTEM = (type === 'totem');
-  // Aplicar clase
   document.body.classList.toggle('totem', IS_TOTEM);
-  // Bloquear zoom táctil si es tótem
   if(IS_TOTEM){
+    // Bloquear zoom táctil
     document.addEventListener('touchmove', e=>{ if(e.touches.length>1) e.preventDefault(); },{passive:false});
     document.addEventListener('gesturestart',  e=>e.preventDefault());
     document.addEventListener('gesturechange', e=>e.preventDefault());
+    // Mostrar panel flotante tótem
+    document.getElementById('totem-panel').classList.add('show');
   } else {
     initStars();
+    document.getElementById('totem-panel').classList.remove('show');
   }
   renderHiScores();
   showScreen('menu');
+}
+
+/* ────────────────────────────────────────────
+   PANTALLA COMPLETA
+──────────────────────────────────────────── */
+function toggleFullscreen(){
+  const btn=document.getElementById('btn-fs');
+  if(!document.fullscreenElement && !document.webkitFullscreenElement){
+    const el=document.documentElement;
+    if(el.requestFullscreen)        el.requestFullscreen({navigationUI:'hide'});
+    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    btn.innerHTML='<span class="tp-icon">&#9723;</span> Salir pantalla completa';
+  } else {
+    if(document.exitFullscreen)        document.exitFullscreen();
+    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    btn.innerHTML='<span class="tp-icon">&#9974;</span> Pantalla completa';
+  }
+}
+document.addEventListener('fullscreenchange',()=>{
+  const btn=document.getElementById('btn-fs');
+  if(!btn) return;
+  btn.innerHTML=document.fullscreenElement
+    ?'<span class="tp-icon">&#9723;</span> Salir pantalla completa'
+    :'<span class="tp-icon">&#9974;</span> Pantalla completa';
+});
+
+/* ────────────────────────────────────────────
+   AGREGAR A PANTALLA DE INICIO (A2HS)
+──────────────────────────────────────────── */
+let a2hsPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  a2hsPrompt=e;
+  // Mostrar también en el install banner (PC)
+  if(!IS_TOTEM){
+    document.getElementById('inst-banner').classList.add('show');
+    document.getElementById('brand-bar').classList.remove('show');
+  }
+});
+
+function addToHome(){
+  if(a2hsPrompt){
+    // Hay prompt nativo del browser
+    a2hsPrompt.prompt();
+    a2hsPrompt.userChoice.then(r=>{
+      if(r.outcome==='accepted') a2hsPrompt=null;
+    });
+  } else {
+    // Sin prompt (ya instalado, o iOS Safari, o Chrome que no lo soporta)
+    // Mostrar instrucciones manuales
+    showA2HSInstructions();
+  }
+}
+
+function showA2HSInstructions(){
+  const ua=navigator.userAgent.toLowerCase();
+  let msg='';
+  if(/iphone|ipad|ipod/.test(ua)){
+    msg='En Safari: tocá el botón Compartir (cuadrado con flecha) y luego "Agregar a pantalla de inicio"';
+  } else if(/android/.test(ua)){
+    msg='En Chrome: tocá los 3 puntos (menú) y luego "Agregar a pantalla de inicio" o "Instalar aplicación"';
+  } else {
+    msg='En Chrome de escritorio: tocá los 3 puntos → "Instalar aplicación" o "Guardar en escritorio"';
+  }
+  // Mostrar popup simple
+  const popup=document.createElement('div');
+  popup.style.cssText='position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:24px;';
+  popup.innerHTML=`
+    <div style="background:#0f1d30;border:2px solid var(--c5);border-radius:20px;padding:28px 24px;max-width:400px;text-align:center;">
+      <div style="font-family:Boogaloo,cursive;font-size:1.5rem;color:var(--c3);margin-bottom:12px">Agregar a inicio</div>
+      <div style="font-size:.95rem;color:rgba(255,255,255,.7);line-height:1.6;margin-bottom:20px">${msg}</div>
+      <button onclick="this.closest('div[style]').remove()" style="font-family:Boogaloo,cursive;font-size:1.1rem;padding:10px 32px;border-radius:30px;border:none;background:var(--c5);color:#fff;cursor:pointer;">Entendido</button>
+    </div>`;
+  document.body.appendChild(popup);
 }
 
 function showDevice(){ showScreen('device'); }
@@ -545,14 +654,15 @@ const DIFFS = {
 };
 
 const TARGETS = {
-  normal: { prob:.50, pts:1,  sz:65, life:2200, col:'var(--c5)', em:['🐸','🐱','🦊','🐰','🐼','🦁','🐯','🐮','🐷','🦋','🌸','🍭','🎈','🐻','🐧','🦜','🐬','🦄'] },
+  // Solo emojis que Chrome Android/Chromebook renderiza siempre bien (sin variation selectors ni emojis nuevos 2019+)
+  normal: { prob:.50, pts:1,  sz:65, life:2200, col:'var(--c5)', em:['🐸','🐱','🦊','🐰','🐼','🦁','🐯','🐮','🐷','🐻','🐧','🐬','🐵','🐶','🐹','🐨'] },
   gold:   { prob:.17, pts:3,  sz:56, life:1600, col:'var(--c3)', em:['⭐','🌟','💫','✨','🏆','🥇','💰','👑'] },
-  bomb:   { prob:.12, pts:-1, sz:62, life:2600, col:'#ff3333',   em:['💣','💀','🤬','👿','🧨','☠️'] },
-  freeze: { prob:.06, pts:5,  sz:58, life:2000, col:'var(--c5)', em:['❄️','🧊','💎','🫧'] },
-  rainbow:{ prob:.04, pts:10, sz:54, life:900,  col:'#fff',      em:['🌈','🎆','🎇','🪩','🔮'] },
-  shield: { prob:.04, pts:0,  sz:60, life:2800, col:'#39ff14',   em:['🛡️','❤️','💊','❤️‍🩹'] },
-  mega:   { prob:.04, pts:15, sz:80, life:1200, col:'var(--c2)', em:['🔥','⚡','💥','🌀','🌊'] },
-  speed:  { prob:.03, pts:2,  sz:58, life:1500, col:'var(--c4)', em:['⚡','🚀','💨','⏩'] }
+  bomb:   { prob:.12, pts:-1, sz:62, life:2600, col:'#ff3333',   em:['💣','💀','😈','💥','🔴','😡'] },
+  freeze: { prob:.06, pts:5,  sz:58, life:2000, col:'var(--c5)', em:['💎','🔵','🔷','🌀','💙','🔹'] },
+  rainbow:{ prob:.04, pts:10, sz:54, life:900,  col:'#fff',      em:['🌈','🎆','🎇','🔮','🎨'] },
+  shield: { prob:.04, pts:0,  sz:60, life:2800, col:'#39ff14',   em:['💚','❤️','💛','💜','🟢','💗'] },
+  mega:   { prob:.04, pts:15, sz:80, life:1200, col:'var(--c2)', em:['🔥','⚡','💥','🌊','🎯'] },
+  speed:  { prob:.03, pts:2,  sz:58, life:1500, col:'var(--c4)', em:['⚡','🚀','💨','🏃','🟠'] }
 };
 
 const RATINGS = [
@@ -1162,18 +1272,12 @@ function beep(f,v,t){
 }
 
 /* ────────────────────────────────────────────
-   PWA
+   PWA install banner (PC)
 ──────────────────────────────────────────── */
-let dPr=null;
-window.addEventListener('beforeinstallprompt',e=>{
-  e.preventDefault(); dPr=e;
-  document.getElementById('inst-banner').classList.add('show');
-  document.getElementById('brand-bar').classList.remove('show');
-});
 function doInstall(){
-  if(!dPr) return;
-  dPr.prompt();
-  dPr.userChoice.then(()=>{ dPr=null; dismissInst(); });
+  if(!a2hsPrompt) return;
+  a2hsPrompt.prompt();
+  a2hsPrompt.userChoice.then(()=>{ a2hsPrompt=null; dismissInst(); });
 }
 function dismissInst(){
   document.getElementById('inst-banner').classList.remove('show');
