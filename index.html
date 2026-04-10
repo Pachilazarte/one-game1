@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#070714">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="img/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="img/favicon.png">
 <title>REFLEX — Desafio de Reflejos</title>
 <link href="https://fonts.googleapis.com/css2?family=Boogaloo&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
@@ -210,10 +213,19 @@ body:not(.totem) .target:hover{transform:scale(1.1) rotate(3deg)!important;}
 @keyframes tOut{to{transform:scale(0) rotate(20deg);opacity:0}}
 .target.missed{animation:tMiss .22s ease-out forwards!important;}
 @keyframes tMiss{to{transform:scale(0);opacity:0}}
-/* Emoji centrado */
+/* Ring countdown: CSS puro, sin JS timer por target */
+.t-ring{
+  position:absolute;inset:-3px;border-radius:50%;pointer-events:none;
+  background:conic-gradient(rgba(255,255,255,.12) 0deg, transparent 0deg);
+  animation:ringDrain linear forwards;
+  animation-duration:var(--life,2s);
+}
+@keyframes ringDrain{
+  from{background:conic-gradient(rgba(255,255,255,.14) 360deg, transparent 360deg);}
+  80%{background:conic-gradient(rgba(255,255,255,.12) calc(360deg * .2), transparent calc(360deg * .2));}
+  to{background:conic-gradient(rgba(255,50,50,.3) 0deg, transparent 0deg);}
+}
 .t-emoji{position:relative;z-index:1;line-height:1;pointer-events:none;display:block;}
-/* Ring */
-.t-ring{position:absolute;inset:0;border-radius:50%;pointer-events:none;}
 /* Tipos */
 .t-normal{background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.2),rgba(42,176,201,.12));border:2.5px solid rgba(42,176,201,.55);box-shadow:0 0 18px rgba(42,176,201,.28);}
 .t-gold{background:radial-gradient(circle at 35% 30%,rgba(255,240,150,.28),rgba(231,133,34,.14));border:2.5px solid rgba(251,190,0,.7);box-shadow:0 0 24px rgba(251,190,0,.5);animation:tIn .22s forwards,gGlow .9s ease-in-out infinite alternate!important;}
@@ -778,8 +790,9 @@ function spawnParticles(x,y,col,n=12){
 
 function renderParticles(){
   px.clearRect(0,0,pc.width,pc.height);
-  tx.clearRect(0,0,tc.width,tc.height);
+  // Trail solo en PC
   if(!IS_TOTEM){
+    tx.clearRect(0,0,tc.width,tc.height);
     trails=trails.filter(t=>{
       t.life-=.07; if(t.life<=0) return false;
       tx.globalAlpha=t.life*.35; tx.fillStyle='rgba(42,176,201,.4)';
@@ -788,14 +801,16 @@ function renderParticles(){
     });
     tx.globalAlpha=1;
   }
+  // Partículas — sin shadowBlur en tótem (muy costoso en GPU baja)
   particles=particles.filter(p=>{
     p.x+=p.vx; p.y+=p.vy; p.vy+=.16; p.vx*=.98; p.life-=p.decay;
     if(p.life<=0) return false;
-    px.globalAlpha=p.life; px.shadowBlur=IS_TOTEM?3:10; px.shadowColor=p.col; px.fillStyle=p.col;
+    px.globalAlpha=p.life;
+    px.fillStyle=p.col;
     px.beginPath(); px.arc(p.x,p.y,p.sz*p.life,0,Math.PI*2); px.fill();
     return true;
   });
-  px.globalAlpha=1; px.shadowBlur=0;
+  px.globalAlpha=1;
   if(state==='playing') animLoop=requestAnimationFrame(renderParticles);
 }
 
@@ -959,20 +974,17 @@ function renderTarget(t){
   const emoji=TARGETS[t.type].em[Math.floor(Math.random()*TARGETS[t.type].em.length)];
   el.style.cssText=`width:${t.sz}px;height:${t.sz}px;left:${t.x-t.sz/2}px;top:${t.y-t.sz/2}px;font-size:${Math.round(t.sz*.52)}px;`;
 
-  const ring=document.createElement('div'); ring.className='t-ring'; el.appendChild(ring);
+  // Ring: CSS animation, CERO setInterval — mejora drástica de rendimiento
+  const ring=document.createElement('div');
+  ring.className='t-ring';
+  ring.style.setProperty('--life', (t.lifeMs/1000)+'s');
+  el.appendChild(ring);
+
   const em=document.createElement('span'); em.className='t-emoji'; em.textContent=emoji; el.appendChild(em);
 
   el.addEventListener('click',e=>{e.stopPropagation();hitTarget(t.id);});
   el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();hitTarget(t.id);},{passive:false});
   ga.appendChild(el);
-
-  // Ring countdown
-  const t0=Date.now();
-  const ri=setInterval(()=>{
-    if(!t.alive){clearInterval(ri);return;}
-    const pct=1-(Date.now()-t0)/t.lifeMs;
-    ring.style.background=`conic-gradient(${pct<.3?'rgba(255,50,50,.22)':'rgba(255,255,255,.1)'} ${pct*360}deg, transparent ${pct*360}deg)`;
-  },80);
 
   setTimeout(()=>{ if(!t.clicked&&t.alive) expireTarget(t.id); },t.lifeMs);
 }
@@ -1005,8 +1017,8 @@ function hitTarget(id){
   // BOMBA
   if(t.type==='bomb'){
     bombsHit++; combo=0; comboMulti=1; lives--;
-    beep(70,.3,'sawtooth');
-    spawnParticles(t.x,t.y,'#ff3333',IS_TOTEM?10:20);
+    soundHit('bomb');
+    spawnParticles(t.x,t.y,'#ff3333',IS_TOTEM?8:18);
     shakeArea(); flashArea('#ff1111');
     showPop(t.x,t.y,'-1 VIDA','#ff3333');
     if(el){el.classList.add('dying');setTimeout(()=>el.remove(),200);}
@@ -1019,28 +1031,29 @@ function hitTarget(id){
   if(t.type==='freeze'){
     applyFreeze(); hitCount++;
     combo++; comboMulti=cmul(); if(combo>maxCombo)maxCombo=combo;
-    showPop(t.x,t.y,'❄️ CONGELADO','var(--c5)');
-    spawnParticles(t.x,t.y,'#2AB0C9',IS_TOTEM?8:15);
+    soundHit('freeze');
+    showPop(t.x,t.y,'CONGELADO','var(--c5)');
+    spawnParticles(t.x,t.y,'#2AB0C9',IS_TOTEM?6:12);
     if(el){el.classList.add('dying');setTimeout(()=>el.remove(),200);}
     updateHUD(); updateStreak(); return;
   }
   if(t.type==='shield'){
     if(lives<3) lives++; hitCount++;
     combo++; comboMulti=cmul(); if(combo>maxCombo)maxCombo=combo;
-    beep(880,.15,'sine');
-    spawnParticles(t.x,t.y,'#39ff14',IS_TOTEM?8:14);
-    showPop(t.x,t.y,'+1 ❤️','#39ff14');
+    soundHit('shield');
+    spawnParticles(t.x,t.y,'#39ff14',IS_TOTEM?6:12);
+    showPop(t.x,t.y,'+1 VIDA','#39ff14');
     if(el){el.classList.add('dying');setTimeout(()=>el.remove(),200);}
     updateHUD(); updateStreak(); return;
   }
   if(t.type==='speed'){
     doublePoints=true; clearTimeout(dpTimer);
     dpTimer=setTimeout(()=>{doublePoints=false;removePill('x2');},5000);
-    addPill('x2','⚡ x2 PUNTOS','ppill-x2',5000);
+    addPill('x2','x2 PUNTOS','ppill-x2',5000);
     hitCount++; combo++; comboMulti=cmul(); if(combo>maxCombo)maxCombo=combo;
-    beep(660,.15,'triangle');
-    spawnParticles(t.x,t.y,'#E78522',IS_TOTEM?8:14);
-    showPop(t.x,t.y,'⚡ DOBLE!','var(--c4)');
+    soundHit('speed');
+    spawnParticles(t.x,t.y,'#E78522',IS_TOTEM?6:12);
+    showPop(t.x,t.y,'DOBLE!','var(--c4)');
     if(el){el.classList.add('dying');setTimeout(()=>el.remove(),200);}
     updateHUD(); updateStreak(); return;
   }
@@ -1052,13 +1065,13 @@ function hitTarget(id){
   let pts=Math.round((t.pts+spBonus)*comboMulti*DIFFS[curDiff].scoreMulti*(doublePoints?2:1));
   score+=pts;
 
-  beep(t.type==='rainbow'?880:t.type==='mega'?760:t.type==='gold'?660:440,.12,'triangle');
-  spawnParticles(t.x,t.y,col,IS_TOTEM?8:14);
+  soundHit(t.type);
+  spawnParticles(t.x,t.y,col,IS_TOTEM?6:12);
   showPop(t.x,t.y,(pts>0?'+':'')+pts,spBonus>0?'var(--c3)':col);
 
-  if(combo>=20)       comboSplash('⚡ MAX x5',col);
-  else if(combo===10) comboSplash('🔥 COMBO x3',col);
-  else if(combo===5)  comboSplash('😎 COMBO x2','var(--c3)');
+  if(combo>=20)       { comboSplash('MAX x5',col); soundCombo(20); }
+  else if(combo===10) { comboSplash('COMBO x3',col); soundCombo(10); }
+  else if(combo===5)  { comboSplash('COMBO x2','var(--c3)'); soundCombo(5); }
 
   if(el){el.classList.add('dying');setTimeout(()=>el.remove(),200);}
   updateHUD(); updateStreak();
@@ -1298,18 +1311,73 @@ function goPanel(){
 function restartGame(){ startGame(); }
 
 /* ────────────────────────────────────────────
-   SONIDO
+   SONIDO — Web Audio mejorado
 ──────────────────────────────────────────── */
 let actx=null;
-function beep(f,v,t){
+function getCtx(){
+  if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)();
+  if(actx.state==='suspended') actx.resume();
+  return actx;
+}
+
+function beep(f,v,t,dur=0.22){
   try{
-    if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)();
-    const o=actx.createOscillator(),g=actx.createGain();
-    o.connect(g); g.connect(actx.destination);
-    o.type=t||'sine'; o.frequency.setValueAtTime(f,actx.currentTime);
-    g.gain.setValueAtTime(v*.55,actx.currentTime);
-    g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+.28);
-    o.start(); o.stop(actx.currentTime+.28);
+    const ctx=getCtx();
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type=t||'sine'; o.frequency.setValueAtTime(f,ctx.currentTime);
+    g.gain.setValueAtTime(v*.6,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
+    o.start(); o.stop(ctx.currentTime+dur);
+  }catch(_){}
+}
+
+// Sonido de hit con envelope más musical
+function soundHit(type){
+  try{
+    const ctx=getCtx();
+    const freqs={normal:440,gold:660,rainbow:880,mega:330,freeze:550,shield:523,speed:494,bomb:80};
+    const f=freqs[type]||440;
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    // Arpegio rápido para gold/rainbow/mega
+    if(type==='gold'||type==='rainbow'||type==='mega'){
+      o.frequency.setValueAtTime(f,ctx.currentTime);
+      o.frequency.setValueAtTime(f*1.25,ctx.currentTime+.06);
+      o.frequency.setValueAtTime(f*1.5,ctx.currentTime+.12);
+    } else {
+      o.frequency.setValueAtTime(f,ctx.currentTime);
+    }
+    o.type=type==='bomb'?'sawtooth':type==='freeze'?'sine':'triangle';
+    o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(type==='bomb'?.4:.25,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+(type==='bomb'?.4:.28));
+    o.start(); o.stop(ctx.currentTime+(type==='bomb'?.4:.3));
+
+    // Nota grave de acompañamiento para bomb
+    if(type==='bomb'){
+      const o2=ctx.createOscillator(),g2=ctx.createGain();
+      o2.type='square'; o2.frequency.setValueAtTime(40,ctx.currentTime);
+      o2.connect(g2); g2.connect(ctx.destination);
+      g2.gain.setValueAtTime(.3,ctx.currentTime);
+      g2.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.5);
+      o2.start(); o2.stop(ctx.currentTime+.5);
+    }
+  }catch(_){}
+}
+
+// Sonido de combo
+function soundCombo(level){
+  try{
+    const ctx=getCtx();
+    const notes=level>=20?[880,1100,1320]:level>=10?[660,880,1100]:[440,550,660];
+    notes.forEach((f,i)=>{
+      const o=ctx.createOscillator(),g=ctx.createGain();
+      o.type='triangle'; o.frequency.setValueAtTime(f,ctx.currentTime+i*.07);
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(.15,ctx.currentTime+i*.07);
+      g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+i*.07+.25);
+      o.start(ctx.currentTime+i*.07); o.stop(ctx.currentTime+i*.07+.3);
+    });
   }catch(_){}
 }
 
@@ -1325,7 +1393,19 @@ function dismissInst(){
   document.getElementById('inst-banner').classList.remove('show');
   document.getElementById('brand-bar').classList.add('show');
 }
-window.addEventListener('appinstalled',dismissInst);
+window.addEventListener('appinstalled',()=>{
+  dismissInst();
+  document.getElementById('a2hs-modal').classList.remove('show');
+});
+
+/* ────────────────────────────────────────────
+   SERVICE WORKER — necesario para PWA/A2HS
+──────────────────────────────────────────── */
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
 
 /* ────────────────────────────────────────────
    INIT
@@ -1338,6 +1418,8 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&state==='menu') startGame();
   if(e.key==='Escape'&&(state==='gameover'||state==='how')) showMenu();
 });
+// Desbloquear AudioContext en primer toque (requerido por Chrome Android)
+document.addEventListener('touchstart',()=>{ try{getCtx();}catch(_){} },{once:true,passive:true});
 </script>
 </body>
 </html>
