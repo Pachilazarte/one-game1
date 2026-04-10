@@ -202,17 +202,15 @@ body.totem #game-area{
   position:absolute;z-index:20;
   display:flex;align-items:center;justify-content:center;
   border-radius:50%;
-  animation:tIn .22s cubic-bezier(.36,.07,.19,.97) forwards;
-  will-change:transform;
-  /* Hit area generosa en tótem */
+  animation:tIn .18s ease-out forwards;
+  /* Sin will-change: en tótems con poca RAM crea demasiadas capas GPU */
 }
-@keyframes tIn{from{transform:scale(0) rotate(-25deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
-body:not(.totem) .target:hover{transform:scale(1.1) rotate(3deg)!important;}
+@keyframes tIn{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+body:not(.totem) .target:hover{transform:scale(1.08)!important;}
 .target:active{transform:scale(.88)!important;}
-.target.dying{animation:tOut .18s ease-in forwards!important;}
-@keyframes tOut{to{transform:scale(0) rotate(20deg);opacity:0}}
-.target.missed{animation:tMiss .22s ease-out forwards!important;}
-@keyframes tMiss{to{transform:scale(0);opacity:0}}
+.target.dying{animation:tOut .15s ease-in forwards!important;}
+@keyframes tOut{to{transform:scale(0);opacity:0}}
+.target.missed{animation:tOut .15s ease-in forwards!important;}
 /* Ring countdown: CSS puro, sin JS timer por target */
 .t-ring{
   position:absolute;inset:-3px;border-radius:50%;pointer-events:none;
@@ -239,6 +237,15 @@ body:not(.totem) .target:hover{transform:scale(1.1) rotate(3deg)!important;}
 .t-mega{background:radial-gradient(circle at 35% 30%,rgba(242,58,122,.28),rgba(65,77,113,.18));border:3px solid rgba(242,58,122,.75);box-shadow:0 0 30px rgba(242,58,122,.6);animation:tIn .22s forwards,mPulse .55s ease-in-out infinite!important;}
 @keyframes mPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
 .t-speed{background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.18),rgba(231,133,34,.1));border:2.5px solid rgba(231,133,34,.65);box-shadow:0 0 18px rgba(231,133,34,.42);}
+/* TOTEM: sin animaciones infinitas en targets — libera GPU en dispositivos con poca RAM */
+body.totem .t-gold,
+body.totem .t-bomb,
+body.totem .t-rainbow,
+body.totem .t-mega{animation:tIn .18s ease-out forwards!important;}
+/* TOTEM: sin box-shadow en targets (muy costoso en GPU de bajo rendimiento) */
+body.totem .target{box-shadow:none!important;}
+/* TOTEM: sin ring countdown (ahorra compositor) */
+body.totem .t-ring{display:none!important;}
 
 /* ── PUNTOS POPUP ───────────────────────── */
 .pts-pop{position:absolute;z-index:60;font-family:'Boogaloo',cursive;pointer-events:none;animation:pUp .75s ease-out forwards;font-size:1.6rem;font-weight:900;text-shadow:0 2px 10px rgba(0,0,0,.5);white-space:nowrap;}
@@ -711,12 +718,12 @@ const TARGETS = {
   // Solo emojis que Chrome Android/Chromebook renderiza siempre bien (sin variation selectors ni emojis nuevos 2019+)
   normal: { prob:.50, pts:1,  sz:65, life:2200, col:'var(--c5)', em:['🐸','🐱','🦊','🐰','🐼','🦁','🐯','🐮','🐷','🐻','🐧','🐬','🐵','🐶','🐹','🐨'] },
   gold:   { prob:.17, pts:3,  sz:56, life:1600, col:'var(--c3)', em:['⭐','🌟','💫','✨','🏆','🥇','💰','👑'] },
-  bomb:   { prob:.12, pts:-1, sz:62, life:2600, col:'#ff3333',   em:['💣','💀','😈','💥','🔴','😡'] },
-  freeze: { prob:.06, pts:5,  sz:58, life:2000, col:'var(--c5)', em:['💎','🔵','🔷','🌀','💙','🔹'] },
-  rainbow:{ prob:.04, pts:10, sz:54, life:900,  col:'#fff',      em:['🌈','🎆','🎇','🔮','🎨'] },
-  shield: { prob:.04, pts:0,  sz:60, life:2800, col:'#39ff14',   em:['💚','❤️','💛','💜','🟢','💗'] },
+  bomb:   { prob:.12, pts:-1, sz:62, life:2600, col:'#ff3333',   em:['💣','💀','😈','💥','😡','🔴'] },
+  freeze: { prob:.06, pts:5,  sz:58, life:2000, col:'var(--c5)', em:['💎','🔵','💙','🌀','🔷','💠'] },
+  rainbow:{ prob:.04, pts:10, sz:54, life:900,  col:'#fff',      em:['🌈','🔮','🎨','🌐','🎭'] },
+  shield: { prob:.04, pts:0,  sz:60, life:2800, col:'#39ff14',   em:['💚','💛','💜','💗','💖','💝'] },
   mega:   { prob:.04, pts:15, sz:80, life:1200, col:'var(--c2)', em:['🔥','⚡','💥','🌊','🎯'] },
-  speed:  { prob:.03, pts:2,  sz:58, life:1500, col:'var(--c4)', em:['⚡','🚀','💨','🏃','🟠'] }
+  speed:  { prob:.03, pts:2,  sz:58, life:1500, col:'var(--c4)', em:['⚡','🚀','💨','🏃','🔶'] }
 };
 
 const RATINGS = [
@@ -983,7 +990,18 @@ function renderTarget(t){
   const em=document.createElement('span'); em.className='t-emoji'; em.textContent=emoji; el.appendChild(em);
 
   el.addEventListener('click',e=>{e.stopPropagation();hitTarget(t.id);});
-  el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();hitTarget(t.id);},{passive:false});
+  // En tótem: touchend sin preventDefault — no bloquea el hilo de eventos del browser
+  // Esto es lo que causaba que haya que apretar varias veces
+  if(IS_TOTEM){
+    el.addEventListener('touchend',e=>{
+      e.stopPropagation();
+      hitTarget(t.id);
+    },{passive:true});
+  } else {
+    el.addEventListener('touchstart',e=>{
+      e.preventDefault();e.stopPropagation();hitTarget(t.id);
+    },{passive:false});
+  }
   ga.appendChild(el);
 
   setTimeout(()=>{ if(!t.clicked&&t.alive) expireTarget(t.id); },t.lifeMs);
